@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>重力坝稳定性分析插件</Name>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Application.DamAnalysisApplication</FullClassName>
+    <ClientId>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>重力坝稳定性分析</Text>
+    <Description>选择重力坝实体进行稳定性计算分析</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.DamStabilityAnalysisCommand</FullClassName>
+    <ClientId>{87654321-4321-4321-4321-CBA987654321}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>快速识别坝体</Text>
+    <Description>快速识别和验证重力坝实体</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.QuickDamRecognitionCommand</FullClassName>
+    <ClientId>{11111111-2222-3333-4444-555555555555}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>二维剖面稳定性分析</Text>
+    <Description>基于二维剖面的重力坝稳定性分析</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.DamProfile2DAnalysisCommand</FullClassName>
+    <ClientId>{12345678-1234-1234-1234-123456789ABD}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>ViewSection剖面提取</Text>
+    <Description>使用标准Revit ViewSection流程从坝体中提取二维剖面</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.ViewSectionProfileExtractionCommand</FullClassName>
+    <ClientId>{AABBCCDD-1122-3344-5566-778899AABBCC}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>UI集成分析</Text>
+    <Description>启动重力坝分析UI界面</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.GravityDamAnalysisCommand</FullClassName>
+    <ClientId>{B2C3D4E5-F6G7-8901-BCDE-F23456789012}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>AlwaysVisible</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Text>高级坝体分析</Text>
+    <Description>高级重力坝稳定性分析功能</Description>
+    <Assembly>GravityDamAnalysis.Revit.dll</Assembly>
+    <FullClassName>GravityDamAnalysis.Revit.Commands.AdvancedDamAnalysisCommand</FullClassName>
+    <ClientId>{98765432-5432-5432-5432-DCBA98765432}</ClientId>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>重力坝分析插件开发团队</VendorDescription>
+    <VisibilityMode>NotVisibleWhenNoActiveDocument</VisibilityMode>
+    <AvailabilityClassName>GravityDamAnalysis.Revit.Commands.DamAnalysisAvailability</AvailabilityClassName>
+  </AddIn>
+</RevitAddIns> 

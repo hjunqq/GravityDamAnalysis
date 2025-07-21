@@ -1,0 +1,90 @@
+﻿.vs
+bin
+# 通用C#/.NET项目忽略规则
+
+# Visual Studio相关
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sln.ide
+*.VC.db
+*.vscode/
+*.ncb
+*.opendb
+*.sdf
+*.cache
+*.dbmdl
+*.db
+*.bak
+*.aps
+*.pidb
+*.svclog
+*.tlog
+*.log
+*.orig
+*.docstates
+*.ipch
+*.scc
+*.vspscc
+*.vssscc
+
+# Rider/JetBrains
+.idea/
+*.DotSettings.user
+_ReSharper*/
+*.resharper
+
+# Mac/Windows系统文件
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# NuGet
+*.nupkg
+*.snupkg
+*.nuget/
+packages/
+# NuGet包还原目录
+**/packages/*
+
+# Test结果
+TestResults/
+*.TestResults/
+
+# 发布配置
+*.PublishProfiles/
+
+# 构建输出目录（适用于解决方案下所有项目）
+**/bin/
+**/obj/
+**/Debug/
+**/debug/
+**/Release/
+**/release/
+**/BIN/
+**/OBJ/
+**/DEBUG/
+**/RELEASE/
+
+# 临时文件
+*.tmp
+*.tmp.*
+*.ide
+
+# 其他常见IDE/工具
+*.userprefs
+
+# 解决方案中所有新项目的输出目录
+*/bin/
+*/obj/
+*/Debug/
+*/debug/
+*/Release/
+*/release/
+
+# 其他
+*.pdb
+
+
