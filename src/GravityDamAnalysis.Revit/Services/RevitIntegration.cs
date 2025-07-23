@@ -1,12 +1,13 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using GravityDamAnalysis.Core.Models;
 using GravityDamAnalysis.UI.Interfaces;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Controls;
 
 namespace GravityDamAnalysis.Revit.Services
 {
@@ -47,14 +48,40 @@ namespace GravityDamAnalysis.Revit.Services
                     // 使用过滤器查找可能的坝体元素
                     var collector = new FilteredElementCollector(_document);
                     
-                    // 查找墙体、楼板、结构柱等可能的坝体元素
+                    // 查找墙体、楼板、结构柱、结构框架、公制常规模型等可能的坝体元素
                     var walls = collector.OfClass(typeof(Wall)).Cast<Wall>().ToList();
                     var floors = collector.OfClass(typeof(Floor)).Cast<Floor>().ToList();
                     var structuralColumns = collector.OfClass(typeof(FamilyInstance))
                         .Cast<FamilyInstance>()
                         .Where(fi => fi.StructuralType == Autodesk.Revit.DB.Structure.StructuralType.Column)
                         .ToList();
-                    
+                    var structuralFramings = collector.OfClass(typeof(FamilyInstance))
+                        .Cast<FamilyInstance>()
+                        .Where(fi => fi.StructuralType == Autodesk.Revit.DB.Structure.StructuralType.Beam ||
+                                     fi.StructuralType == Autodesk.Revit.DB.Structure.StructuralType.Brace)
+                        .ToList();
+                    var genericModels = collector.OfClass(typeof(FamilyInstance))
+                        .Cast<FamilyInstance>()
+                        .Where(fi => fi.Category != null && fi.Category.BuiltInCategory == BuiltInCategory.OST_GenericModel)
+                        .ToList();
+
+
+                    // 2. 使用 FilteredElementCollector 获取所有“实例元素”（不是类型）
+                    collector = new FilteredElementCollector(_document);
+                    var allElements = collector.WhereElementIsNotElementType(); // 过滤掉类型元素
+
+                    var families = collector.OfClass(typeof(Family)).ToElements();
+
+                    List<Element> customModels = new List<Element>();
+                    foreach (Element family in families)
+                    {
+                        // 这里可以添加自定义逻辑来筛选特定的族
+                        if (family.Name.Contains("Dam", StringComparison.OrdinalIgnoreCase))
+                        {
+                            customModels.Add(family);
+                        }
+                    }
+
                     OnProgressChanged(30, "分析几何特征...", false);
                     
                     // 分析墙体作为坝体
@@ -79,7 +106,7 @@ namespace GravityDamAnalysis.Revit.Services
                         }
                     }
                     
-                    OnProgressChanged(90, "分析结构柱...", false);
+                    OnProgressChanged(80, "分析结构柱...", false);
                     
                     // 分析结构柱作为坝体
                     foreach (var column in structuralColumns)
@@ -90,7 +117,40 @@ namespace GravityDamAnalysis.Revit.Services
                             dams.Add(dam);
                         }
                     }
-                    
+
+                    OnProgressChanged(90, "分析结构框架...", false);
+
+                    // 分析结构框架（如梁、板等）作为坝体
+                    foreach (var framing in structuralFramings)
+                    {
+                        if (IsDamStructure(framing))
+                        {
+                            var dam = CreateDamGeometry(framing, "框架坝体");
+                            dams.Add(dam);
+                        }
+                    }
+
+                    OnProgressChanged(95, "分析常规模型...", false);
+
+                    // 分析公制常规模型作为坝体
+                    foreach (var gm in genericModels)
+                    {
+                        if (IsDamStructure(gm))
+                        {
+                            var dam = CreateDamGeometry(gm, "常规模型坝体");
+                            dams.Add(dam);
+                        }
+                    }
+
+                    foreach (var customModel in customModels)
+                    {
+                        //if (IsDamStructure(customModel))
+                        //{
+                            var dam = CreateDamGeometry(customModel, "自定义坝体");
+                            dams.Add(dam);
+                        //}
+                    }
+
                     OnProgressChanged(100, "识别完成", false);
                     OnStatusChanged($"成功识别 {dams.Count} 个坝体");
                 }
@@ -121,6 +181,13 @@ namespace GravityDamAnalysis.Revit.Services
                     }
                     
                     OnProgressChanged(30, "获取几何信息...", false);
+                    
+                    // 检查是否为拉伸模型
+                    if (IsExtrusionModel(element))
+                    {
+                        OnStatusChanged("检测到拉伸模型，使用优化的拉伸剖面提取方法");
+                        return ExtractExtrusionModelProfile(element, dam, profileIndex);
+                    }
                     
                     // 获取元素的几何信息
                     var geometry = element.get_Geometry(new Options());
@@ -387,6 +454,293 @@ namespace GravityDamAnalysis.Revit.Services
         
         #region 私有辅助方法
         
+        /// <summary>
+        /// 检查元素是否为拉伸模型
+        /// </summary>
+        /// <param name="element">Revit元素</param>
+        /// <returns>是否为拉伸模型</returns>
+        private bool IsExtrusionModel(Element element)
+        {
+            try
+            {
+                // 检查是否为公制常规模型
+                if (element is FamilyInstance familyInstance)
+                {
+                    var category = familyInstance.Category;
+                    if (category?.BuiltInCategory == BuiltInCategory.OST_GenericModel)
+                    {
+                        // 获取几何信息检查是否为拉伸实体
+                        var geometry = element.get_Geometry(new Options());
+                        if (geometry != null)
+                        {
+                            foreach (var geoObj in geometry)
+                            {
+                                if (geoObj is Solid solid)
+                                {
+                                    return IsExtrusionSolid(solid);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "检查拉伸模型时发生错误");
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// 提取拉伸模型的剖面（专门针对拉伸模型优化）
+        /// </summary>
+        /// <param name="element">拉伸模型元素</param>
+        /// <param name="dam">坝体信息</param>
+        /// <param name="profileIndex">剖面索引</param>
+        /// <returns>坝体剖面</returns>
+        private DamProfile ExtractExtrusionModelProfile(Element element, DamGeometry dam, int profileIndex)
+        {
+            try
+            {
+                OnProgressChanged(40, "分析拉伸模型几何...", false);
+                
+                // 获取几何信息
+                var geometry = element.get_Geometry(new Options());
+                if (geometry == null)
+                {
+                    throw new InvalidOperationException("无法获取拉伸模型几何信息");
+                }
+                
+                OnProgressChanged(50, "提取拉伸轮廓...", false);
+                
+                // 提取拉伸轮廓
+                var extrusionProfile = ExtractExtrusionModelProfileCoordinates(geometry, profileIndex);
+                
+                OnProgressChanged(70, "计算拉伸基础线...", false);
+                
+                // 计算拉伸基础线
+                var foundationLine = CalculateExtrusionFoundationLine(extrusionProfile);
+                
+                OnProgressChanged(90, "设置拉伸参数...", false);
+                
+                // 获取拉伸参数
+                var (foundationElevation, crestElevation) = GetExtrusionElevations(extrusionProfile);
+                
+                OnProgressChanged(100, "拉伸剖面提取完成", false);
+                OnStatusChanged("拉伸模型剖面提取完成");
+                
+                return new DamProfile
+                {
+                    DamId = dam.Id,
+                    ProfileIndex = profileIndex,
+                    Name = $"{dam.Name}_拉伸剖面_{profileIndex}",
+                    Coordinates = extrusionProfile,
+                    FoundationLine = foundationLine,
+                    WaterLevel = GetWaterLevel(),
+                    FoundationElevation = foundationElevation,
+                    CrestElevation = crestElevation
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "提取拉伸模型剖面时发生错误");
+                OnStatusChanged($"拉伸模型剖面提取失败: {ex.Message}");
+                throw;
+            }
+        }
+        
+        /// <summary>
+        /// 从拉伸模型几何中提取剖面坐标
+        /// </summary>
+        /// <param name="geometry">几何元素</param>
+        /// <param name="profileIndex">剖面索引</param>
+        /// <returns>2D剖面坐标</returns>
+        private List<Point2D> ExtractExtrusionModelProfileCoordinates(GeometryElement geometry, int profileIndex)
+        {
+            var coordinates = new List<Point2D>();
+            var extractedGeometry = new ExtractedGeometryInfo();
+            
+            try
+            {
+                OnStatusChanged($"正在提取拉伸模型剖面 {profileIndex} 的几何信息...");
+                
+                // 遍历几何对象，提取点、线、面
+                foreach (GeometryObject geoObj in geometry)
+                {
+                    ProcessGeometryObject(geoObj, extractedGeometry);
+                }
+                
+                // 输出详细的提取统计信息
+                var extractionStats = new
+                {
+                    PointsCount = extractedGeometry.Points.Count,
+                    CurvesCount = extractedGeometry.Curves.Count,
+                    FacesCount = extractedGeometry.Faces.Count,
+                    TotalArea = extractedGeometry.Faces.Sum(f => f.Area),
+                    ProfileIndex = profileIndex
+                };
+                
+                OnStatusChanged($"拉伸模型几何提取完成 - 点: {extractionStats.PointsCount}, 线: {extractionStats.CurvesCount}, 面: {extractionStats.FacesCount}, 总面积: {extractionStats.TotalArea:F2} 平方英尺");
+                
+                // 高亮显示提取的几何元素
+                HighlightExtractedGeometry(extractedGeometry);
+                
+                // 转换为2D剖面坐标（针对拉伸模型优化）
+                coordinates = ConvertExtrusionTo2DCoordinates(extractedGeometry, profileIndex);
+                
+                // 验证提取的坐标
+                var validationInfo = ValidateExtractedCoordinates(coordinates, extractionStats);
+                
+                // 输出验证结果
+                OnStatusChanged($"拉伸模型剖面 {profileIndex} 验证结果: {validationInfo.Status} - {validationInfo.Message}");
+                
+                // 如果验证失败，提供用户提示
+                if (!validationInfo.IsValid)
+                {
+                    OnStatusChanged($"⚠️ 拉伸模型剖面提取警告: {validationInfo.Suggestions}");
+                }
+                
+                return coordinates;
+            }
+            catch (Exception ex)
+            {
+                OnStatusChanged($"提取拉伸模型剖面 {profileIndex} 几何时出错: {ex.Message}");
+                _logger?.LogError(ex, "提取拉伸模型剖面 {ProfileIndex} 几何时发生错误", profileIndex);
+                
+                // 返回默认坐标作为后备方案
+                return GetDefaultExtrusionCoordinates();
+            }
+        }
+        
+        /// <summary>
+        /// 将拉伸模型几何转换为2D坐标（针对拉伸模型优化）
+        /// </summary>
+        /// <param name="extractedGeometry">提取的几何信息</param>
+        /// <param name="profileIndex">剖面索引</param>
+        /// <returns>2D坐标列表</returns>
+        private List<Point2D> ConvertExtrusionTo2DCoordinates(ExtractedGeometryInfo extractedGeometry, int profileIndex)
+        {
+            var coordinates = new List<Point2D>();
+            
+            try
+            {
+                // 计算剖面的投影平面（基于剖面索引）
+                var projectionPlane = CalculateProjectionPlane(profileIndex);
+                
+                // 优先从拉伸轮廓线中提取坐标
+                var profileCurves = extractedGeometry.Curves
+                    .Where(c => c.Curve != null)
+                    .OrderByDescending(c => c.Curve.Length) // 优先选择较长的曲线
+                    .ToList();
+                
+                if (profileCurves.Any())
+                {
+                    // 从轮廓线中提取点
+                    var contourPoints = ExtractContourFromCurves(profileCurves, projectionPlane);
+                    coordinates.AddRange(contourPoints);
+                    
+                    OnStatusChanged($"从拉伸轮廓线提取了 {contourPoints.Count} 个坐标点");
+                }
+                
+                // 如果轮廓线不够，从面中提取边界
+                if (coordinates.Count < 3)
+                {
+                    var faceBoundaryPoints = ExtractBoundaryFromFaces(extractedGeometry.Faces, projectionPlane);
+                    coordinates.AddRange(faceBoundaryPoints);
+                    OnStatusChanged($"从拉伸面边界提取了 {faceBoundaryPoints.Count} 个坐标点");
+                }
+                
+                // 如果仍然不够，从点中提取
+                if (coordinates.Count < 3)
+                {
+                    var pointProjections = ProjectPointsToPlane(extractedGeometry.Points, projectionPlane);
+                    coordinates.AddRange(pointProjections);
+                    OnStatusChanged($"从拉伸顶点提取了 {pointProjections.Count} 个坐标点");
+                }
+                
+                // 确保坐标按顺序排列（逆时针）
+                coordinates = OrderCoordinatesClockwise(coordinates);
+                
+                // 如果坐标太少，使用默认拉伸坐标
+                if (coordinates.Count < 3)
+                {
+                    coordinates = GetDefaultExtrusionCoordinates();
+                    OnStatusChanged("使用默认拉伸坐标作为后备方案");
+                }
+                
+                return coordinates;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "转换拉伸模型2D坐标时发生错误");
+                return GetDefaultExtrusionCoordinates();
+            }
+        }
+        
+        /// <summary>
+        /// 计算拉伸模型的基础线
+        /// </summary>
+        /// <param name="coordinates">剖面坐标</param>
+        /// <returns>基础线坐标</returns>
+        private List<Point2D> CalculateExtrusionFoundationLine(List<Point2D> coordinates)
+        {
+            if (!coordinates.Any()) return new List<Point2D>();
+            
+            // 简化的基础线计算（针对拉伸模型优化）
+            var minY = coordinates.Min(p => p.Y);
+            var maxX = coordinates.Max(p => p.X);
+            var minX = coordinates.Min(p => p.X);
+            
+            return new List<Point2D>
+            {
+                new Point2D(minX, minY),
+                new Point2D(maxX, minY)
+            };
+        }
+        
+        /// <summary>
+        /// 获取拉伸模型的标高信息
+        /// </summary>
+        /// <param name="coordinates">剖面坐标</param>
+        /// <returns>(基础标高, 坝顶标高)</returns>
+        private (double FoundationElevation, double CrestElevation) GetExtrusionElevations(List<Point2D> coordinates)
+        {
+            if (!coordinates.Any())
+                return (0.0, 100.0);
+            
+            var foundationElevation = coordinates.Min(p => p.Y);
+            var crestElevation = coordinates.Max(p => p.Y);
+            
+            return (foundationElevation, crestElevation);
+        }
+        
+        /// <summary>
+        /// 获取默认拉伸坐标（后备方案）
+        /// </summary>
+        /// <returns>默认拉伸坐标列表</returns>
+        private List<Point2D> GetDefaultExtrusionCoordinates()
+        {
+            return new List<Point2D>
+            {
+                new Point2D(0, 0),      // 左下角
+                new Point2D(50, 0),     // 右下角
+                new Point2D(60, 20),    // 右侧斜坡
+                new Point2D(70, 40),    // 右侧斜坡
+                new Point2D(80, 60),    // 右侧斜坡
+                new Point2D(90, 80),    // 右侧斜坡
+                new Point2D(100, 100),  // 坝顶右侧
+                new Point2D(100, 120),  // 坝顶
+                new Point2D(80, 120),   // 坝顶左侧
+                new Point2D(60, 100),   // 左侧斜坡
+                new Point2D(40, 80),    // 左侧斜坡
+                new Point2D(20, 60),    // 左侧斜坡
+                new Point2D(10, 40),    // 左侧斜坡
+                new Point2D(0, 20)      // 左侧斜坡
+            };
+        }
+        
         private bool IsDamStructure(Element element)
         {
             // 简单的坝体识别逻辑
@@ -609,6 +963,17 @@ namespace GravityDamAnalysis.Revit.Services
                     // 提取网格中的面和边
                     ExtractMeshGeometry(mesh, extractedGeometry);
                     break;
+                    
+                case Curve curve:
+                    // 处理一般曲线（包括拉伸的轮廓线）
+                    extractedGeometry.Curves.Add(new ExtractedCurve
+                    {
+                        Curve = curve,
+                        StartPoint = curve.GetEndPoint(0),
+                        EndPoint = curve.GetEndPoint(1),
+                        Reference = curve.Reference
+                    });
+                    break;
             }
         }
         
@@ -618,6 +983,317 @@ namespace GravityDamAnalysis.Revit.Services
         /// <param name="solid">Revit实体</param>
         /// <param name="extractedGeometry">提取的几何信息</param>
         private void ExtractSolidGeometry(Solid solid, ExtractedGeometryInfo extractedGeometry)
+        {
+            try
+            {
+                // 检查是否为拉伸实体
+                if (IsExtrusionSolid(solid))
+                {
+                    OnStatusChanged("检测到拉伸实体，使用专门的拉伸剖面提取方法");
+                    ExtractExtrusionSolidGeometry(solid, extractedGeometry);
+                    return;
+                }
+                
+                // 常规实体处理
+                ExtractRegularSolidGeometry(solid, extractedGeometry);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "提取实体几何时发生错误，回退到常规处理");
+                ExtractRegularSolidGeometry(solid, extractedGeometry);
+            }
+        }
+        
+        /// <summary>
+        /// 检查实体是否为拉伸实体
+        /// </summary>
+        /// <param name="solid">Revit实体</param>
+        /// <returns>是否为拉伸实体</returns>
+        private bool IsExtrusionSolid(Solid solid)
+        {
+            try
+            {
+                // 拉伸实体的特征：
+                // 1. 通常有6个面（上下底面 + 4个侧面）
+                // 2. 上下底面平行且形状相同
+                // 3. 侧面都是矩形面
+                
+                if (solid.Faces.Size != 6) return false;
+                
+                var faces = solid.Faces.Cast<Face>().ToList();
+                
+                // 找到上下底面（通常面积最大且平行）
+                var planarFaces = faces.OfType<PlanarFace>().ToList();
+                if (planarFaces.Count < 2) return false;
+                
+                // 检查是否有平行的面
+                var parallelFaces = new List<PlanarFace>();
+                for (int i = 0; i < planarFaces.Count; i++)
+                {
+                    for (int j = i + 1; j < planarFaces.Count; j++)
+                    {
+                        var face1 = planarFaces[i];
+                        var face2 = planarFaces[j];
+                        
+                        // 检查法向量是否平行（考虑容差）
+                        var normal1 = face1.FaceNormal;
+                        var normal2 = face2.FaceNormal;
+                        
+                        var dotProduct = Math.Abs(normal1.DotProduct(normal2));
+                        if (dotProduct > 0.99) // 几乎平行
+                        {
+                            parallelFaces.Add(face1);
+                            parallelFaces.Add(face2);
+                        }
+                    }
+                }
+                
+                // 如果找到平行的面，很可能是拉伸实体
+                return parallelFaces.Count >= 2;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// 提取拉伸实体的几何信息（专门针对拉伸模型优化）
+        /// </summary>
+        /// <param name="solid">拉伸实体</param>
+        /// <param name="extractedGeometry">提取的几何信息</param>
+        private void ExtractExtrusionSolidGeometry(Solid solid, ExtractedGeometryInfo extractedGeometry)
+        {
+            try
+            {
+                OnStatusChanged("正在提取拉伸实体的几何信息...");
+                
+                var faces = solid.Faces.Cast<Face>().ToList();
+                var planarFaces = faces.OfType<PlanarFace>().ToList();
+                
+                // 分离上下底面和侧面
+                var (topFaces, bottomFaces, sideFaces) = ClassifyExtrusionFaces(planarFaces);
+                
+                // 提取拉伸方向
+                var extrusionDirection = DetermineExtrusionDirection(topFaces, bottomFaces);
+                
+                // 提取拉伸轮廓（从上下底面）
+                var extrusionProfile = ExtractExtrusionProfile(topFaces, bottomFaces, extrusionDirection);
+                
+                // 添加到几何信息中
+                extractedGeometry.Curves.AddRange(extrusionProfile);
+                
+                // 提取所有面
+                foreach (Face face in faces)
+                {
+                    extractedGeometry.Faces.Add(new ExtractedFace
+                    {
+                        Face = face,
+                        Area = face.Area,
+                        Reference = face.Reference
+                    });
+                }
+                
+                // 提取所有边
+                foreach (Edge edge in solid.Edges)
+                {
+                    var curve = edge.AsCurve();
+                    extractedGeometry.Curves.Add(new ExtractedCurve
+                    {
+                        Curve = curve,
+                        StartPoint = curve.GetEndPoint(0),
+                        EndPoint = curve.GetEndPoint(1),
+                        Reference = edge.Reference
+                    });
+                }
+                
+                // 提取顶点
+                var vertexPoints = new HashSet<XYZ>();
+                foreach (Edge edge in solid.Edges)
+                {
+                    var curve = edge.AsCurve();
+                    vertexPoints.Add(curve.GetEndPoint(0));
+                    vertexPoints.Add(curve.GetEndPoint(1));
+                }
+                
+                foreach (var point in vertexPoints)
+                {
+                    extractedGeometry.Points.Add(new ExtractedPoint
+                    {
+                        Position = point,
+                        Reference = null
+                    });
+                }
+                
+                OnStatusChanged($"拉伸实体几何提取完成 - 轮廓线: {extrusionProfile.Count} 条");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "提取拉伸实体几何时发生错误");
+                OnStatusChanged("拉伸实体几何提取失败，使用常规方法");
+                ExtractRegularSolidGeometry(solid, extractedGeometry);
+            }
+        }
+        
+        /// <summary>
+        /// 分类拉伸实体的面（上底面、下底面、侧面）
+        /// </summary>
+        /// <param name="planarFaces">平面面列表</param>
+        /// <returns>分类后的面</returns>
+        private (List<PlanarFace> TopFaces, List<PlanarFace> BottomFaces, List<PlanarFace> SideFaces) 
+            ClassifyExtrusionFaces(List<PlanarFace> planarFaces)
+        {
+            var topFaces = new List<PlanarFace>();
+            var bottomFaces = new List<PlanarFace>();
+            var sideFaces = new List<PlanarFace>();
+            
+            // 按法向量分组
+            var faceGroups = new Dictionary<XYZ, List<PlanarFace>>();
+            
+            foreach (var face in planarFaces)
+            {
+                var normal = face.FaceNormal;
+                var key = NormalizeVector(normal);
+                
+                if (!faceGroups.ContainsKey(key))
+                    faceGroups[key] = new List<PlanarFace>();
+                
+                faceGroups[key].Add(face);
+            }
+            
+            // 找到最大的面组（通常是上下底面）
+            var largestGroup = faceGroups.Values.OrderByDescending(g => g.Count).First();
+            
+            // 检查是否为水平面（法向量接近Z轴）
+            var isHorizontal = largestGroup.Any(f => Math.Abs(f.FaceNormal.DotProduct(XYZ.BasisZ)) > 0.9);
+            
+            if (isHorizontal)
+            {
+                // 按Z坐标分类上下底面
+                var sortedFaces = largestGroup.OrderBy(f => f.Origin.Z).ToList();
+                
+                if (sortedFaces.Count >= 2)
+                {
+                    bottomFaces.Add(sortedFaces.First()); // 最低的面
+                    topFaces.Add(sortedFaces.Last());     // 最高的面
+                }
+                
+                // 其余面为侧面
+                sideFaces.AddRange(planarFaces.Except(largestGroup));
+            }
+            else
+            {
+                // 非水平拉伸，按面积分类
+                var sortedByArea = largestGroup.OrderByDescending(f => f.Area).ToList();
+                
+                if (sortedByArea.Count >= 2)
+                {
+                    topFaces.Add(sortedByArea.First());   // 面积最大的面
+                    bottomFaces.Add(sortedByArea[1]);     // 面积第二大的面
+                }
+                
+                // 其余面为侧面
+                sideFaces.AddRange(planarFaces.Except(largestGroup));
+            }
+            
+            return (topFaces, bottomFaces, sideFaces);
+        }
+        
+        /// <summary>
+        /// 标准化向量（用于比较）
+        /// </summary>
+        /// <param name="vector">输入向量</param>
+        /// <returns>标准化向量</returns>
+        private XYZ NormalizeVector(XYZ vector)
+        {
+            var length = vector.GetLength();
+            if (length < 1e-6) return XYZ.Zero;
+            
+            return vector / length;
+        }
+        
+        /// <summary>
+        /// 确定拉伸方向
+        /// </summary>
+        /// <param name="topFaces">上底面</param>
+        /// <param name="bottomFaces">下底面</param>
+        /// <returns>拉伸方向</returns>
+        private XYZ DetermineExtrusionDirection(List<PlanarFace> topFaces, List<PlanarFace> bottomFaces)
+        {
+            if (!topFaces.Any() || !bottomFaces.Any())
+                return XYZ.BasisZ; // 默认Z方向
+            
+            var topOrigin = topFaces.First().Origin;
+            var bottomOrigin = bottomFaces.First().Origin;
+            
+            var direction = topOrigin - bottomOrigin;
+            return direction.GetLength() > 1e-6 ? direction.Normalize() : XYZ.BasisZ;
+        }
+        
+        /// <summary>
+        /// 提取拉伸轮廓
+        /// </summary>
+        /// <param name="topFaces">上底面</param>
+        /// <param name="bottomFaces">下底面</param>
+        /// <param name="extrusionDirection">拉伸方向</param>
+        /// <returns>轮廓曲线列表</returns>
+        private List<ExtractedCurve> ExtractExtrusionProfile(List<PlanarFace> topFaces, List<PlanarFace> bottomFaces, XYZ extrusionDirection)
+        {
+            var profileCurves = new List<ExtractedCurve>();
+            
+            try
+            {
+                // 从上下底面提取轮廓
+                var allFaces = topFaces.Concat(bottomFaces).ToList();
+                
+                foreach (var face in allFaces)
+                {
+                    // 获取面的边界曲线
+                    var edgeLoops = face.GetEdgesAsCurveLoops();
+                    
+                    foreach (var edgeLoop in edgeLoops)
+                    {
+                        foreach (var curve in edgeLoop)
+                        {
+                            // 检查曲线是否垂直于拉伸方向（轮廓线）
+                            var curveDirection = curve.GetEndPoint(1) - curve.GetEndPoint(0);
+                            var dotProduct = Math.Abs(curveDirection.Normalize().DotProduct(extrusionDirection));
+                            
+                            // 如果曲线方向与拉伸方向垂直，则为轮廓线
+                            if (dotProduct < 0.1)
+                            {
+                                profileCurves.Add(new ExtractedCurve
+                                {
+                                    Curve = curve,
+                                    StartPoint = curve.GetEndPoint(0),
+                                    EndPoint = curve.GetEndPoint(1),
+                                    Reference = curve.Reference
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                // 如果没有找到轮廓线，尝试从所有边中提取
+                if (!profileCurves.Any())
+                {
+                    OnStatusChanged("未找到标准轮廓线，尝试从所有边中提取...");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "提取拉伸轮廓时发生错误");
+            }
+            
+            return profileCurves;
+        }
+        
+        /// <summary>
+        /// 常规实体几何提取（原有逻辑）
+        /// </summary>
+        /// <param name="solid">Revit实体</param>
+        /// <param name="extractedGeometry">提取的几何信息</param>
+        private void ExtractRegularSolidGeometry(Solid solid, ExtractedGeometryInfo extractedGeometry)
         {
             // 提取面
             foreach (Face face in solid.Faces)

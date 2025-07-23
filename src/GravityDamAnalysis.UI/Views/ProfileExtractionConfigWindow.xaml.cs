@@ -228,7 +228,13 @@ public partial class ProfileExtractionConfigWindow : Window, INotifyPropertyChan
             ExtractionStatus = "正在加载坝体列表...";
             
             var dams = await _revitIntegration.AutoDetectDamsAsync();
-            
+            if (dams == null || !dams.Any())
+            {
+                
+
+                return;
+            }
+
             AvailableDams.Clear();
             foreach (var dam in dams)
             {
