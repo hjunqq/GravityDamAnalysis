@@ -7,6 +7,7 @@ using GravityDamAnalysis.Infrastructure.Revit;
 using GravityDamAnalysis.Calculation.Services;
 using GravityDamAnalysis.Revit.SectionAnalysis;
 using GravityDamAnalysis.Core.Services;
+using GravityDamAnalysis.Revit.Resources;
 using Serilog;
 
 namespace GravityDamAnalysis.Revit.Application;
@@ -130,6 +131,9 @@ public class DamAnalysisApplication : IExternalApplication
     /// </summary>
     private void CreateRibbonPanel(UIControlledApplication application)
     {
+        // 确保图标存在
+        IconResourceManager.EnsureIconsExist();
+
         // 创建选项卡（如果不存在）
         const string tabName = "重力坝分析";
         try
@@ -163,7 +167,13 @@ public class DamAnalysisApplication : IExternalApplication
                                    "自动提取几何参数和材料属性，并进行稳定性计算。" +
                                    "计算结果包括抗滑安全系数和抗倾覆安全系数。";
 
-            // 可以在后续添加自定义图标
+            // 设置图标
+            var icon = IconResourceManager.LoadIcon("StabilityAnalysis");
+            if (icon != null)
+            {
+                button.LargeImage = icon;
+                button.Image = icon;
+            }
         }
 
         // 添加高级分析命令按钮
@@ -181,6 +191,14 @@ public class DamAnalysisApplication : IExternalApplication
             advancedButton.LongDescription = "集成了智能剖面定位、改进几何切割和安全事务管理的高级分析功能。" +
                                            "支持批量剖面提取、几何特征识别和详细稳定性分析。" +
                                            "相比标准分析，具有更高的精度和更好的性能表现。";
+
+            // 设置图标
+            var advancedIcon = IconResourceManager.LoadIcon("AdvancedAnalysis");
+            if (advancedIcon != null)
+            {
+                advancedButton.LargeImage = advancedIcon;
+                advancedButton.Image = advancedIcon;
+            }
         }
 
         // 添加UI集成分析命令按钮
@@ -197,6 +215,39 @@ public class DamAnalysisApplication : IExternalApplication
             uiButton.ToolTip = "使用WPF UI界面进行重力坝稳定性分析";
             uiButton.LongDescription = "提供现代化的WPF用户界面，支持实时进度反馈、详细结果展示和报告生成。" +
                                      "集成了完整的分析流程，包括坝体识别、剖面提取、稳定性计算和结果管理。";
+
+            // 设置图标
+            var uiIcon = IconResourceManager.LoadIcon("UIIntegration");
+            if (uiIcon != null)
+            {
+                uiButton.LargeImage = uiIcon;
+                uiButton.Image = uiIcon;
+            }
+        }
+
+        // 添加拉伸Sketch提取命令按钮
+        var extrusionButtonData = new PushButtonData(
+            "ExtractExtrusionSection",
+            "拉伸Sketch\n提取",
+            assemblyPath,
+            "GravityDamAnalysis.Revit.Commands.ExtractExtrusionSectionCommand");
+
+        var extrusionButton = panel.AddItem(extrusionButtonData) as PushButton;
+        
+        if (extrusionButton != null)
+        {
+            extrusionButton.ToolTip = "从拉伸几何体中提取Sketch并高亮显示";
+            extrusionButton.LongDescription = "专门处理拉伸几何体（如常规模型、体量等），" +
+                                           "自动识别拉伸特征，提取Sketch（草图轮廓），" +
+                                           "并在Revit中高亮显示提取的面，便于后续分析。";
+
+            // 设置图标
+            var extrusionIcon = IconResourceManager.LoadIcon("ExtrusionSketch");
+            if (extrusionIcon != null)
+            {
+                extrusionButton.LargeImage = extrusionIcon;
+                extrusionButton.Image = extrusionIcon;
+            }
         }
 
         _logger?.LogInformation("功能区面板创建成功");
